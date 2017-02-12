@@ -82,6 +82,19 @@ def activate_scene(scene_name):
         if scene['name'] == scene_name:
             status = b.scenes[scene_id](http_method='get')
             lightstates = status['lightstates']
+            # Check the current status of the lights
+            # If every lights involved in this scene
+            # are already off, don't change anything
+            # It might means it is the day
+            everything_is_off=True
+            for light_id, light in lightstates.items():
+                light_status = b.lights[light_id](http_method='get')
+                if light_status['state']['on'] == True:
+                    everything_is_off = False
+
+            if everything_is_off:
+                return False
+
             for light_id, light in lightstates.items():
                 if light['on'] == True:
                     b.lights[light_id].state(on=True, bri=light['bri'], ct=light['ct'])
@@ -147,7 +160,7 @@ def scene_root():
             app.logger.info("%s scene activated" % scene)
             return 'ok'
         else:
-            app.logger.info("Problem activating %s scene" % scene)
+            app.logger.info("%s scene not activated. Lights are currently off" % scene)
             return 'ok'
     else:
         app.logger.info("No scene to activate on %s" % event)
