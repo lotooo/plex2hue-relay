@@ -57,6 +57,12 @@ except:
     filtered_players = None
     print('No specific player mentioned, your lights will blink !')
 
+# OPTIONNAL : The state backup file
+try:
+    last_known_state_file = os.environ['BACKUP_FILE']
+except:
+    last_known_state_file = '/tmp/last_known_state'
+
 events = [
         'media.play', 
         'media.pause', 
@@ -76,10 +82,14 @@ for event in events:
 
 
 def activate_scene(scene_name):
+    """ Activate a specific scene if the lights are already on """
     b = Bridge(bridge_ip, bridge_username)
     scenes = b.scenes()
     for scene_id, scene in scenes.items():
         if scene['name'] == scene_name:
+            # Variable to store the current light state
+            current_lightstates = {}
+
             status = b.scenes[scene_id](http_method='get')
             lightstates = status['lightstates']
             # Check the current status of the lights
@@ -89,6 +99,10 @@ def activate_scene(scene_name):
             everything_is_off=True
             for light_id, light in lightstates.items():
                 light_status = b.lights[light_id](http_method='get')
+
+                # Save the status of this light buble
+                current_lightstates[light_id] = light_status['state']
+
                 if light_status['state']['on'] == True:
                     everything_is_off = False
 
@@ -100,7 +114,36 @@ def activate_scene(scene_name):
                     b.lights[light_id].state(on=True, bri=light['bri'], ct=light['ct'])
                 else:
                     b.lights[light_id].state(on=False)
+
+    # Let's save the current state of the lights involved in this scene
+    try:
+        with open(last_known_state_file, 'w') as f:
+            json.dump(current_lightstates, f)
+    except Exception as e:
+        print("Problem saving the lights status")
+        print(e)
     return True
+
+def restore_last_known_state_involved_in_scene(scene_name):
+    """ Restore the last known state of lights involved in scene 'scene_name'"""
+    # Check if the last state has been saved
+    try:
+        with open(last_known_state_file) as f:
+            last_known_state = json.load(f)
+    except:
+        print("Unknown last state")
+        return False
+
+    #Let's restore as it was before the playback
+    b = Bridge(bridge_ip, bridge_username)
+    for light_id, light in last_known_state.items():
+        if light['on'] == True:
+            b.lights[light_id].state(on=True, bri=light['bri'], ct=light['ct'])
+        else:
+            b.lights[light_id].state(on=False)
+
+    return True
+
 
 app = Flask(__name__)
 
@@ -147,12 +190,13 @@ def scene_root():
             app.logger.info("%s player is not able to play with the lights" % player_uuid)
             return 'ok'
 
-    # Extract the scene we are supposed to used with this event
+
+    # Extract the scene we are supposed to use with this event
     try:
         scene = scene_for_event[event]
     except KeyError:
         app.logger.info("%s is not a proper event" % event)
-        return 'ok'
+        scene = None
 
     # If we found a scene, let's activate it
     if scene:
@@ -164,6 +208,10 @@ def scene_root():
             return 'ok'
     else:
         app.logger.info("No scene to activate on %s" % event)
+        # If we are stopping or pausing the playback without a specific scene
+        # Let's try to reuse the last known state
+        if event in ['media.stop', 'media.pause']:
+            restore_last_known_state_involved_in_scene(scene)
         return 'ok'
 
 if __name__ == "__main__":
