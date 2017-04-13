@@ -80,6 +80,15 @@ for event in events:
     else:
         scene_for_event[event] = None
 
+def save_current_state(current_lightstates):
+    """ Save the current lights states to a file for reuse """
+    try:
+        with open(last_known_state_file, 'w') as f:
+            json.dump(current_lightstates, f)
+    except Exception as e:
+        print("Problem saving the lights status")
+        print(e)
+
 
 def activate_scene(scene_name):
     """ Activate a specific scene if the lights are already on """
@@ -107,6 +116,8 @@ def activate_scene(scene_name):
                     everything_is_off = False
 
             if everything_is_off:
+                # Save the current state (with everything off)
+                save_current_state(current_lightstates)
                 return False
 
             for light_id, light in lightstates.items():
@@ -116,12 +127,7 @@ def activate_scene(scene_name):
                     b.lights[light_id].state(on=False)
 
     # Let's save the current state of the lights involved in this scene
-    try:
-        with open(last_known_state_file, 'w') as f:
-            json.dump(current_lightstates, f)
-    except Exception as e:
-        print("Problem saving the lights status")
-        print(e)
+    save_current_state(current_lightstates)
     return True
 
 def restore_last_known_state_involved_in_scene(scene_name):
